@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hand Garden</title>
+<style>
+  :root{
+    --bg-top: #0e1f1a;
+    --bg-bot: #05100c;
+    --panel: #0d1a15;
+    --line: #1d3129;
+    --leaf: #3f7d5c;
+    --text: #dcefe4;
+    --muted: #6f9284;
+    --accent: #7fd9a8;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(circle at 50% 15%, var(--bg-top) 0%, var(--bg-bot) 65%);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: var(--text);
+    overflow:hidden;
+  }
+  .app{
+    display:flex; flex-direction:column; align-items:center;
+    height:100%; width:100%;
+    padding: 16px 16px 22px;
+  }
+  header{ text-align:center; margin-bottom: 10px; }
+  h1{
+    font-size: 14px; letter-spacing: 0.3em; text-transform: uppercase;
+    font-weight: 600; margin: 0 0 4px; color: var(--accent);
+    text-shadow: 0 0 14px rgba(127,217,168,0.4);
+  }
+  p.sub{ margin:0; font-size: 11.5px; color: var(--muted); letter-spacing: 0.03em; }
+
+  .stage{
+    position: relative;
+    width: min(92vw, 780px);
+    aspect-ratio: 4 / 3;
+    border-radius: 18px;
+    overflow: hidden;
+    background: #06120d;
+    border: 1px solid var(--line);
+    box-shadow: 0 0 0 1px rgba(127,217,168,0.05), 0 20px 60px rgba(0,0,0,0.6), inset 0 0 90px rgba(63,125,92,0.08);
+  }
+  video, canvas{
+    position:absolute; top:0; left:0;
+    width:100%; height:100%;
+    transform: scaleX(-1);
+  }
+  video{ object-fit: cover; opacity: 0.55; filter: saturate(0.7) brightness(0.75); }
+  canvas{ pointer-events:none; }
+
+  .overlay-msg{
+    position:absolute; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    flex-direction: column; gap: 10px;
+    background: rgba(6,18,13,0.94);
+    text-align:center; padding: 24px;
+    z-index: 5;
+  }
+  .overlay-msg.hidden{ display:none; }
+  .overlay-msg button{
+    background: var(--accent); color: #052018; border:none; padding: 10px 22px;
+    border-radius: 999px; font-size: 13px; font-weight:700;
+    letter-spacing:0.03em; cursor:pointer;
+    box-shadow: 0 0 24px rgba(127,217,168,0.5);
+  }
+  .overlay-msg .err{ color: #ffb08f; font-size: 12.5px; max-width: 480px; }
+  .overlay-msg ul{ text-align:left; font-size:12.5px; color:var(--text); max-width:420px; margin:0; padding-left:18px; line-height:1.7; }
+
+  .hud{
+    position:absolute; bottom:10px; left:10px; right:10px;
+    display:flex; justify-content:space-between; align-items:flex-end;
+    font-size: 10.5px; letter-spacing: 0.06em; text-transform:uppercase;
+    color: var(--muted); z-index: 4; pointer-events:none;
+  }
+  .hud .block{ display:flex; flex-direction:column; gap:2px; }
+  .hud b{ color: var(--text); font-size: 12px; letter-spacing:0.04em; }
+  .hud .dot{
+    display:inline-block; width:6px; height:6px; border-radius:50%;
+    background: #3ddc84; margin-right:6px; box-shadow: 0 0 8px #3ddc84;
+  }
+  .hud .dot.off{ background:#4a5a52; box-shadow:none; }
+
+  .tag{
+    position:absolute; padding: 3px 9px; border-radius: 999px;
+    font-size: 10px; letter-spacing:0.06em; text-transform:uppercase;
+    background: rgba(6,18,13,0.75); border: 1px solid rgba(127,217,168,0.35);
+    color: var(--accent); transform: translate(-50%,-140%);
+    white-space:nowrap; z-index:3; pointer-events:none;
+  }
+
+  footer{
+    margin-top: 12px; font-size: 11px; color: var(--muted);
+    text-align:center; max-width: 620px; line-height:1.6;
+  }
+  footer b{ color: var(--text); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>Hand Garden</h1>
+    <p class="sub">left hand chooses the species · right hand's pinch controls the bloom</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+    <div class="overlay-msg" id="startOverlay">
+      <div style="font-size:13px; color:var(--text); max-width:440px;">
+        <ul>
+          <li><b>Left hand</b> — hold up 1 to 5 fingers to choose: 1 Jasmine, 2 Marigold, 3 Rose, 4 Tulip, 5 Lotus</li>
+          <li><b>Right hand</b> — pinch thumb + index together (bud) or spread them apart (full bloom)</li>
+        </ul>
+      </div>
+      <button id="startBtn">Start Camera</button>
+      <div class="err" id="errMsg"></div>
+    </div>
+
+    <div id="tagSelect" class="tag" style="display:none;">select</div>
+    <div id="tagBloom" class="tag" style="display:none;">bloom</div>
+
+    <div class="hud">
+      <div class="block">
+        <span><span class="dot off" id="selDot"></span><span id="selLabel">left hand: —</span></span>
+        <b id="speciesLabel">no selection yet</b>
+      </div>
+      <div class="block" style="align-items:flex-end;">
+        <span><span class="dot off" id="bloomDot"></span><span id="bloomHandLabel">right hand: —</span></span>
+        <b id="bloomLabel">bloom 0%</b>
+      </div>
+    </div>
+  </div>
+
+  <footer>Runs fully in-browser via webcam hand tracking — nothing is recorded or uploaded. If your left/right hands feel swapped, it's mirrored like a selfie camera: use whichever hand naturally lands on each side of the frame.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+
+<script>
+(function(){
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const stage = document.getElementById('stage');
+  const startOverlay = document.getElementById('startOverlay');
+  const startBtn = document.getElementById('startBtn');
+  const errMsg = document.getElementById('errMsg');
+
+  const selDot = document.getElementById('selDot');
+  const selLabel = document.getElementById('selLabel');
+  const speciesLabel = document.getElementById('speciesLabel');
+  const bloomDot = document.getElementById('bloomDot');
+  const bloomHandLabel = document.getElementById('bloomHandLabel');
+  const bloomLabel = document.getElementById('bloomLabel');
+  const tagSelect = document.getElementById('tagSelect');
+  const tagBloom = document.getElementById('tagBloom');
+
+  function resizeCanvas(){
+    const rect = stage.getBoundingClientRect();
+    canvas.width = rect.width;
+    canvas.height = rect.height;
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  // ---------- Flower species definitions ----------
+  const SPECIES = [
+    { name:'Jasmine',  shape:'round', size:0.55, widthMul:0.22, capAngle:1.0,
+      colors:['#ffffff','#fbfbe8','#f3edc8'], center:'#fff6c9',
+      rings:[ { count:5, lenMul:1, radMul:0.5, rot:0 } ] },
+
+    { name:'Marigold', shape:'round', size:0.85, widthMul:0.5, capAngle:1.0,
+      colors:['#ffd166','#fb8500','#e85d04'], center:'#fff3b0',
+      rings:[
+        { count:10, lenMul:0.5,  radMul:0.12, rot:0 },
+        { count:14, lenMul:0.68, radMul:0.4,  rot:Math.PI/14 },
+        { count:16, lenMul:0.85, radMul:0.68, rot:0 }
+      ] },
+
+    { name:'Rose', shape:'cup', size:0.95, widthMul:0.42, capAngle:0.6,
+      colors:['#ffb3c6','#ff4d6d','#8f0f27'], center:'#ffd6e0',
+      rings:[
+        { count:5, lenMul:0.42, radMul:0.08, rot:0 },
+        { count:7, lenMul:0.7,  radMul:0.4,  rot:Math.PI/7 },
+        { count:9, lenMul:1,    radMul:0.75, rot:0 }
+      ] },
+
+    { name:'Tulip', shape:'cup', size:1.0, widthMul:0.4, capAngle:0.55,
+      colors:['#ffcad4','#f94144','#bb0a21'], center:'#ffe8ec',
+      rings:[ { count:6, lenMul:1, radMul:0.55, rot:0 } ] },
+
+    { name:'Lotus', shape:'round', size:1.15, widthMul:0.38, capAngle:0.9,
+      colors:['#ffd6f5','#e199e0','#a64ac9'], center:'#fff3ff',
+      rings:[
+        { count:8, lenMul:0.65, radMul:0.28, rot:Math.PI/8 },
+        { count:8, lenMul:1,    radMul:0.7,  rot:0 }
+      ] }
+  ];
+
+  let currentTypeIdx = null;
+  let displayedTypeIdx = 0;
+  let typeVoteBuffer = [];
+  const VOTE_WINDOW = 10;
+
+  let bloomTarget = 0;
+  let bloomSmoothed = 0;
+
+  // ---------- Petal drawing ----------
+  function petalPath(shape, length, width){
+    ctx.beginPath();
+    if(shape === 'cup'){
+      ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(width*1.1, -length*0.55, width*0.15, -length);
+      ctx.quadraticCurveTo(0, -length*1.06, -width*0.15, -length);
+      ctx.quadraticCurveTo(-width*1.1, -length*0.55, 0, 0);
+    } else if(shape === 'spike'){
+      ctx.moveTo(0,0);
+      ctx.lineTo(width*0.55, -length*0.6);
+      ctx.lineTo(0, -length);
+      ctx.lineTo(-width*0.55, -length*0.6);
+    } else {
+      ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(width, -length*0.5, 0, -length);
+      ctx.quadraticCurveTo(-width, -length*0.5, 0, 0);
+    }
+    ctx.closePath();
+  }
+
+  function drawFlower(cx, cy, bloom, spec, time, scale){
+    const easedBloom = bloom*bloom*(3-2*bloom); // smoothstep
+    const maxLen = 46*spec.size*scale;
+    const petalW = maxLen*(spec.widthMul || 0.34);
+    const spread = easedBloom*spec.capAngle;
+
+    const rings = spec.rings;
+
+    rings.forEach((ring, ringIdx)=>{
+      for(let i=0;i<ring.count;i++){
+        const baseAngle = (i/ring.count)*Math.PI*2 + ring.rot + Math.sin(time*0.5)*0.02;
+        // color per petal, with a slight shift per ring for depth
+        let color;
+        if(spec.colors){
+          const t = i/ring.count;
+          const ringBias = ringIdx/Math.max(rings.length-1,1)*0.25;
+          color = mixColor(spec.colors, (t + easedBloom*0.15 + ringBias)%1);
+        } else {
+          const hue = (i/ring.count*360 + time*8) % 360;
+          color = `hsl(${hue}, 78%, 62%)`;
+        }
+        const len = (10 + maxLen*ring.lenMul*easedBloom);
+        const radius = (3*scale + ring.radMul*spread*maxLen*0.6);
+
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(baseAngle);
+        ctx.translate(0, -radius);
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10*easedBloom;
+        petalPath(spec.shape, len, petalW*ring.lenMul);
+        ctx.fill();
+        ctx.restore();
+      }
+    });
+
+    // center
+    const centerR = (6 + 8*easedBloom)*scale;
+    ctx.save();
+    ctx.translate(cx, cy);
+    const grad = ctx.createRadialGradient(0,0,0,0,0,centerR);
+    grad.addColorStop(0, spec.center);
+    grad.addColorStop(1, shade(spec.center, -30));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0,0,centerR,0,Math.PI*2);
+    ctx.fill();
+    // little stamen dots
+    const dotCount = 8;
+    for(let i=0;i<dotCount;i++){
+      const a = (i/dotCount)*Math.PI*2 + time*0.6;
+      const r = centerR*0.55;
+      ctx.beginPath();
+      ctx.fillStyle = shade(spec.center, -55);
+      ctx.arc(Math.cos(a)*r, Math.sin(a)*r, centerR*0.09, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function mixColor(colors, t){
+    const n = colors.length;
+    const scaled = t*(n-1);
+    const i = Math.floor(scaled);
+    const frac = scaled - i;
+    const c1 = hexToRgb(colors[Math.min(i,n-1)]);
+    const c2 = hexToRgb(colors[Math.min(i+1,n-1)]);
+    const r = Math.round(c1.r + (c2.r-c1.r)*frac);
+    const g = Math.round(c1.g + (c2.g-c1.g)*frac);
+    const b = Math.round(c1.b + (c2.b-c1.b)*frac);
+    return `rgb(${r},${g},${b})`;
+  }
+  function hexToRgb(hex){
+    const v = hex.replace('#','');
+    return { r: parseInt(v.substring(0,2),16), g: parseInt(v.substring(2,4),16), b: parseInt(v.substring(4,6),16) };
+  }
+  function shade(hex, amt){
+    const c = hexToRgb(hex);
+    const clamp = (x)=>Math.max(0,Math.min(255,x));
+    return `rgb(${clamp(c.r+amt)},${clamp(c.g+amt)},${clamp(c.b+amt)})`;
+  }
+
+  function drawStem(cx, cy, groundY, sway, growth, scale){
+    ctx.save();
+    ctx.strokeStyle = '#3f8a5c';
+    ctx.lineWidth = 5*scale;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, groundY);
+    const midX = cx + sway*22*scale;
+    const midY = groundY - (groundY-cy)*0.5;
+    ctx.quadraticCurveTo(midX, midY, cx + sway*10*scale, cy+6*scale);
+    ctx.stroke();
+
+    // leaves
+    [0.35, 0.65].forEach((t,li)=>{
+      const lx = cx + sway*22*scale*t;
+      const ly = groundY - (groundY-cy)*t;
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate((li===0?-1:1)*0.7 + sway*0.2);
+      ctx.fillStyle = '#4a9a68';
+      ctx.beginPath();
+      ctx.moveTo(0,0);
+      ctx.quadraticCurveTo(18*scale*growth, -6*scale, 30*scale*growth, 0);
+      ctx.quadraticCurveTo(18*scale*growth, 6*scale, 0, 0);
+      ctx.fill();
+      ctx.restore();
+    });
+    ctx.restore();
+  }
+
+  // ---------- Hand landmark helpers ----------
+  const TIP = { index:8, middle:12, ring:16, pinky:20 };
+  const PIP = { index:6, middle:10, ring:14, pinky:18 };
+
+  function dist(a,b){ return Math.hypot(a.x-b.x, a.y-b.y); }
+
+  function countExtendedFingers(lm){
+    let count = 0;
+    ['index','middle','ring','pinky'].forEach(f=>{
+      if(lm[TIP[f]].y < lm[PIP[f]].y - 0.02) count++;
+    });
+    // thumb: compare distance of tip vs ip from pinky_mcp
+    const thumbExt = dist(lm[4], lm[17]) > dist(lm[3], lm[17]) * 1.05;
+    if(thumbExt) count++;
+    return count;
+  }
+
+  function toCanvasCoords(p){
+    return [p.x*canvas.width, p.y*canvas.height];
+  }
+
+  let time = 0;
+  let idleSway = 0;
+  let stemGrowth = 0.15;
+
+  function onResults(results){
+    resizeCanvasIfNeeded();
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    time += 0.03;
+
+    const hands = results.multiHandLandmarks || [];
+    const handedness = results.multiHandedness || [];
+
+    let selectHand = null, bloomHand = null;
+    let selectPos = null, bloomPos = null;
+
+    for(let i=0;i<hands.length;i++){
+      const label = handedness[i] ? handedness[i].label : null; // 'Left' or 'Right'
+      if(label === 'Left'){ selectHand = hands[i]; }
+      else if(label === 'Right'){ bloomHand = hands[i]; }
+    }
+    // fallback if handedness missing but hands present
+    if(!selectHand && !bloomHand && hands.length>0){ selectHand = hands[0]; if(hands[1]) bloomHand = hands[1]; }
+
+    // --- selection hand ---
+    selDot.classList.toggle('off', !selectHand);
+    if(selectHand){
+      const count = countExtendedFingers(selectHand);
+      selLabel.textContent = 'left hand: ' + count + ' finger' + (count===1?'':'s');
+      if(count>=1 && count<=5){
+        typeVoteBuffer.push(count-1);
+        if(typeVoteBuffer.length>VOTE_WINDOW) typeVoteBuffer.shift();
+        const counts = {};
+        typeVoteBuffer.forEach(v=>counts[v]=(counts[v]||0)+1);
+        let best=null, bestN=0;
+        Object.keys(counts).forEach(k=>{ if(counts[k]>bestN){bestN=counts[k]; best=+k;} });
+        if(best!==null && bestN >= Math.min(6, VOTE_WINDOW*0.6)) displayedTypeIdx = best;
+      }
+      const wp = toCanvasCoords(selectHand[9]);
+      selectPos = wp;
+    } else {
+      selLabel.textContent = 'left hand: —';
+      typeVoteBuffer = [];
+    }
+    speciesLabel.textContent = SPECIES[displayedTypeIdx].name;
+
+    // --- bloom hand ---
+    bloomDot.classList.toggle('off', !bloomHand);
+    if(bloomHand){
+      const pinch = dist(bloomHand[4], bloomHand[8]);
+      const handScale = dist(bloomHand[0], bloomHand[9]) || 0.1;
+      const ratio = pinch/handScale;
+      const t = Math.max(0, Math.min(1, (ratio-0.3)/(1.5-0.3)));
+      bloomTarget = t;
+      bloomHandLabel.textContent = 'right hand: pinch ' + Math.round(ratio*100) + '%';
+      const wp = toCanvasCoords(bloomHand[9]);
+      bloomPos = wp;
+    } else {
+      bloomHandLabel.textContent = 'right hand: —';
+    }
+    bloomSmoothed += (bloomTarget - bloomSmoothed)*0.12;
+    bloomLabel.textContent = 'bloom ' + Math.round(bloomSmoothed*100) + '%';
+
+    // tags follow hands
+    if(selectPos){
+      tagSelect.style.display='block';
+      tagSelect.style.left = (canvas.width - selectPos[0]) + 'px'; // account for CSS mirror
+      tagSelect.style.top = selectPos[1] + 'px';
+    } else tagSelect.style.display='none';
+    if(bloomPos){
+      tagBloom.style.display='block';
+      tagBloom.style.left = (canvas.width - bloomPos[0]) + 'px';
+      tagBloom.style.top = bloomPos[1] + 'px';
+    } else tagBloom.style.display='none';
+
+    // --- draw flower in center of stage, growth target scales with bloom presence ---
+    idleSway = Math.sin(time*0.8)*0.5;
+    const growthTarget = 0.35 + 0.65*(bloomHand || selectHand ? 1 : 0.3);
+    stemGrowth += (growthTarget - stemGrowth)*0.03;
+
+    const cx = canvas.width/2;
+    const groundY = canvas.height*0.92;
+    const topY = canvas.height*0.30;
+    const flowerY = groundY - (groundY-topY)*stemGrowth;
+    const scale = Math.min(canvas.width, canvas.height)/420;
+
+    drawStem(cx, flowerY, groundY, idleSway, stemGrowth, scale);
+    drawFlower(cx + idleSway*22*scale, flowerY, bloomHand ? bloomSmoothed : (0.12+Math.sin(time*0.4)*0.03), SPECIES[displayedTypeIdx], time, scale);
+  }
+
+  function resizeCanvasIfNeeded(){
+    const rect = stage.getBoundingClientRect();
+    if(canvas.width !== rect.width || canvas.height !== rect.height){
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+  }
+
+  let camera = null;
+  let hands = null;
+
+  async function start(){
+    errMsg.textContent = '';
+    try{
+      hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/${file}`
+      });
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6,
+        selfieMode: true
+      });
+      hands.onResults(onResults);
+
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width:640, height:480 }, audio:false });
+      video.srcObject = stream;
+      await video.play();
+      resizeCanvas();
+
+      camera = new Camera(video, {
+        onFrame: async () => { await hands.send({image: video}); },
+        width: 640,
+        height: 480
+      });
+      camera.start();
+
+      startOverlay.classList.add('hidden');
+    }catch(err){
+      console.error(err);
+      errMsg.textContent = 'Could not access camera: ' + (err && err.message ? err.message : err) +
+        '. Make sure this page is served over http://localhost (not opened as a file://), and that camera permission is allowed.';
+    }
+  }
+
+  startBtn.addEventListener('click', start);
+  resizeCanvas();
+})();
+</script>
+
+</body>
+</html>
